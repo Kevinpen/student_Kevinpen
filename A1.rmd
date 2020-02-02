@@ -1,0 +1,379 @@
+---
+title: "A1"
+author: "Gang Peng"
+date: "30/01/2020"
+output: html_document
+---
+__Acknowledgement__: Most of the r codes in this report are adapted from lecture 4 notes, authored by BCB420 Instructor Ruth Isserlin. 
+
+## 1. Choose and download the data set
+
+I have chosen an experiment about chimeric antigen receptor ligation transcriptional changes. Its data can be downloaded with:
+```{r, eval=FALSE}
+library(GEOquery)
+
+gse <- getGEO("GSE109161",GSEMatrix=FALSE)
+```
+
+The experiment is interesting because chimeric antigen receptors(CAR), or artificial antigen receptors have been used to find treatment for B cell malignancies and its application was described as revolutionary, although clinic use still in early stage.
+
+There are different kinds of CAR modified T cells that differ in efficacy and toxicity that thought to be resulted from difference in gene expression. In this experiment, two kinds of CAR stimulated T cells(CD28/CD3z and 4-1BB/CD3z) were compared in terms of gene expressions. Result in the experiment may help to improve clinic efficacy and reduce toxicity.
+
+The test condition is CD28/CD3z and 4-1BB/CD3z CAR T cells prepared from healthy donors and stimulated by incubation with anti-CAR beads, control condition is those cells left unstimulated by incubation with control beads.
+  
+Seen from the description(https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE109161), the experiment design has __high quality__, with 3 __biological replicates__ for each different harvest time(6 and 24 hours), with control groups and two CARs groups data. Human T cells were prepared from healthy donors. Also the experimental platform is mature and __new__.
+
+The experimental platform, date and other information can be found from the downloaded gse object using:
+
+```{r, eval=FALSE}
+gse@header$title
+gse@gpls$GPL16791@header$organism
+gse@gpls$GPL16791@header$lsubmission date
+gse@gpls$GPL16791@header$last_update_date
+gse@gpls$GPL16791@header$title
+gse@gpls$GPL16791@header$technology
+current_gpl <- names(GPLList(gse))[1]
+current_gpl_info <- Meta(getGEO(current_gpl))
+length(current_gpl_info$series_id)
+length(current_gpl_info$sample_id)
+```
+The experiment information summarized as: 
+
+__Exiperiment title__ : Comparison of transcriptional changes after CD28/CD3z and 4-1BB/CD3z chimeric antigen receptor ligation  
+__Platform title__ : Illumina HiSeq 2500 (Homo sapiens)  
+__Technology__ :  high-throughput sequencing  
+__Submission data__ : Mar 14 2013  
+__Last update data__ : Mar 27 2019  
+__Organims__ : Homo sapiens  
+__Number of GEO datasets that use this techology__ : 5943  
+__Number of GEO samples that use this technology__ : 161048  
+  
+
+## 2. Overview of data
+The experiment data can be downloaded from supplementary material using:
+```{r message=FALSE}
+library(GEOquery)
+sfiles = getGEOSuppFiles('GSE109161')
+
+```
+
+A brief look at the data:
+```{r}
+car_exp = read.csv(rownames(sfiles),header=TRUE, stringsAsFactors=FALSE)
+car_exp[1:6,1:5]
+```
+
+The data dimension:
+```{r}
+dim(car_exp)
+```
+
+There are 18794 rows of expression data so it has __good coverage__. 
+
+The first column is "gene name"(sequence fragment name), other 24 columns are the raw counts for 24 samples(3 replicates * 2 time point * 2 samples for CD28/CD3z and control * 2 samples for 4-1BB/CD3z and control).
+
+Obviously some genes mentioned in the paper have very different expression profile for test and control, for example IFNG( gene for interferon gamma):
+
+```{r}
+car_exp[car_exp$X=="IFNG",c(2,3)]
+```
+
+4-1BB/CD3z stimulated gene transcription counts 9773 while control counts only 93, a difference of two magnitudes.
+
+## 3. Map identifier
+The data table has only one column, and it's gene name:
+
+The identifiers are following the HGNC convention, and many identifiers are indeed HGNC gene name. For example the IFNG mentioned above, and also recognizable name such as : GZMB, IFNG, IL2, TNF, IL6, KLF2, IL7R and FOXO.
+
+So no further mapping needed.
+
+But I checked the identifiers in online HGNC checker: https://www.genenames.org/tools/multi-symbol-checker/
+
+The result was downloaded as csv file. Checking this file found the majority of the symbols are approved or previously approved, but 3577 symbols are "Unmatched".
+
+```{r}
+hgnc_checker <- read.csv("./hgnc-symbol-check.csv", header = FALSE)
+
+dim(hgnc_checker[hgnc_checker[,2]=="Unmatched",])
+
+```
+
+According to assignment requirement: "All rows should have a unique HUGO symbols", so I think we should delete those rows that don't match HUGO symbols.
+
+Deletion of those rows are reasonable since counts that not matching any gene expression doesn't contribute to differential expression analysis.
+
+Looking at the unmatched rows in "hgnc-symbol-check.csv", I realized all unmatched symbols have "." in it. For example symbols start with "RP". I guess it's denotes repeats, not really gene name. Lecture slide also mentioned this pattern.
+
+So I decided to delete all rows with "." in its symbol:
+
+```{r}
+car_exp <- car_exp[-grep("\\.", car_exp[,1]),]
+dim(car_exp)
+```
+
+
+
+## 4. Cleaning
+
+The data had already summarized or collapsed for each gene, there is __no replicate__(multiple rows that map to the same symbol) :
+```{r}
+summarized_gene_counts <- sort(table(car_exp[1]),decreasing =TRUE)
+summarized_gene_counts[1:10]
+```
+
+There is no reason to believe that there are __outliers__ to be removed, rows with high raw counts are housekeeping genes, like B2M, high expression are anticipated.
+
+As stated in following section, some outliers in the drawing boxplot process are the interesting part in the data, we should not remove them. 
+
+To prepare for normalization, filter weakly expressed and noninformative (e.g., non-aligned) features, first use cpm function in edgeR package to convert raw counts to read per million:
+```{r, message=FALSE}
+library(edgeR)
+cpms = cpm(car_exp[,2:25])
+rownames(cpms) <- car_exp[,1]
+```
+
+Then remove features without at least 1 read per million in 3 replicate samples,
+
+```{r}
+keep = rowSums(cpms >1) >=3
+car_exp_filtered = car_exp[keep,]
+
+dim(car_exp_filtered)
+```
+
+15219-12815=2404 rows of data filtered, the remaining data( __final coverage__ 12815) still have good coverage.
+
+## 5. Representative statistics visualization
+To compute statistics to show the data characteristics, first prepare the data groups:
+
+```{r}
+samples <- data.frame(lapply(colnames(car_exp)[2:25],
+                             FUN=function(x){unlist(strsplit(x, split = "\\_"))[c(2,4)]}))
+
+colnames(samples) <- colnames(car_exp)[2:25]
+rownames(samples) <- c("CAR_type","stim_ctrl")
+samples <- data.frame(t(samples))
+head(samples)
+```
+
+There are two types of CARs:  A42 and A44 denote 4-1BB/CD3z CARs, A43 and A45 denote CD28/CD3z CARs.
+"stim_ctrl" attribute denotes the data are from stimulated sample or control group.
+
+Then plot the distribution of the data for each group:
+```{r, warning=FALSE}
+data2plot <- log2(cpm(car_exp_filtered[,2:25]))
+box<-boxplot(data2plot, outline=FALSE, xlab = "Samples", ylab = "log2 CPM",
+        las = 2, cex = 0.5, cex.lab = 0.5,
+        cex.axis = 0.5, main = "CAR RNASeq Samples")
+
+abline(h = median(apply(data2plot, 2, median)), col = "green", lwd
+       = 0.6, lty = "dashed")
+
+counts_density <- apply(log2(cpm(car_exp_filtered[,2:25])), 2,
+                        density)
+#calculate the limits across all the samples
+xlim <- 0; ylim <- 0
+for (i in 1:length(counts_density)) {
+  xlim <- range(c(xlim, counts_density[[i]]$x));
+  ylim <- range(c(ylim, counts_density[[i]]$y))
+}
+cols <- rainbow(length(counts_density))
+ltys <- rep(1, length(counts_density))
+#plot the first density plot to initialize the plot
+plot(counts_density[[1]], xlim=xlim, ylim=ylim, type="n",
+     ylab="Smoothing density of log2-CPM", main="", cex.lab =
+       0.85)
+#plot each line
+for (i in 1:length(counts_density)) lines(counts_density[[i]],
+                                          col=cols[i], lty=ltys[i])
+#create legend
+legend("topleft",colnames(data2plot),
+       col=cols, lty=ltys, cex=0.55,
+       border ="blue", text.col = "green4",
+       merge = TRUE, bg = "gray90") 
+```
+
+The above boxplot omitted outliers, the first 100 of 6901 outliers can be shown below:
+```{r}
+length(box$out)
+box$out[1:100]
+```
+
+Actually there is no "inf" value in the data, they are infinite only in the sense they are too extreme to draw in the boxplot range. 
+
+The outliers are actually what we interested in the data, like the IFNG gene expression data mentioned before create outliers:
+
+```{r}
+log2(cpm(car_exp[car_exp$X=="IFNG",c(2,3)]))
+```
+  
+  
+## 6. Normalization
+
+The original downloaded data already the result of normalization, according to "RNA-seq data analysis" part of the paper that generate these data( Reference 1),  "Raw count data were imported into R. edgeR was used to calculate the normalization factors to scale the raw library sizes, followed by a voom transformation from the limma Bioconductor package".
+
+No normalization actually needed, but for practice doing normalization one more time to see if there are any effect.
+
+Package edgeR is chosen because it's the most common package for Trimmed Mean of the M-values (TMM)  normalization method, TMM is chosen because as a "Normalization by distribution" method, it choose a sample as a reference sample, then calculate fold changes and absolute expression levels relative to that sample, as described in Reference 2. It is considered as robust and commonly used method.
+
+Use calcNormFactors function in edgeR package to perform normalization:
+```{r}
+    
+filtered_data_matrix <- as.matrix(car_exp_filtered[,2:25])
+rownames(filtered_data_matrix) <- car_exp_filtered[,1]
+d = DGEList(counts=filtered_data_matrix, group=samples$CAR_type)
+d = calcNormFactors(d)
+normalized_counts <- cpm(d)
+normalized_density <- apply(log2(normalized_counts[,1:24]), 2,
+                        density)
+
+```
+
+
+After normalization, plot the distribution density again:
+```{r}
+xlim <- 0; ylim <- 0
+for (i in 1:length(normalized_density)) {
+  xlim <- range(c(xlim, normalized_density[[i]]$x));
+  ylim <- range(c(ylim, normalized_density[[i]]$y))
+}
+cols <- rainbow(length(normalized_density))
+ltys <- rep(1, length(normalized_density))
+
+#plot the first density plot to initialize the plot
+plot(normalized_density[[1]], xlim=xlim, ylim=ylim, type="n",
+     ylab="Normalized density of log2-CPM", main="", cex.lab =
+       0.85)
+#plot each line
+for (i in 1:length(normalized_density)) lines(normalized_density[[i]],
+                                          col=cols[i], lty=ltys[i])
+#create legend
+legend("topleft",colnames(data2plot),
+       col=cols, lty=ltys, cex=0.55,
+       border ="blue", text.col = "green4",
+       merge = TRUE, bg = "gray90") 
+
+
+```
+
+The plot is slightly different from the plot of distribution before normalization, but basically the same. The two plots have roughly same distribution range.
+
+Also the boxplot:
+```{r, warning=FALSE}
+par(fig=c(0,0.48,0,1), new=TRUE)
+data2plot <- log2(car_exp_filtered[,2:25])
+box<-boxplot(data2plot, outline=FALSE, xlab = "Samples", ylab = "log2 CPM",
+        las = 2, cex = 0.5, cex.lab = 0.5,
+        cex.axis = 0.5, main = "Original")
+abline(h = median(apply(data2plot, 2, median)), col = "green", lwd
+       = 0.6, lty = "dashed")
+
+par(fig=c(0.52,1,0,1), new=TRUE)
+data2plot2 <- log2(cpm(normalized_counts[,1:24]))
+box<-boxplot(data2plot2, outline=FALSE, xlab = "Samples", ylab = "log2 CPM",
+        las = 2, cex = 0.5, cex.lab = 0.5,
+        cex.axis = 0.5, main = "Normalized")
+abline(h = median(apply(data2plot2, 2, median)), col = "green", lwd
+       = 0.6, lty = "dashed")
+```
+
+Since the normalization not really needed, I keep the data set just before normalization as final result.
+
+Save the result:
+```{r}
+result<-as.data.frame(car_exp_filtered)
+write.csv(result,"result.csv")
+```
+
+## 7. Compare test and control distribution
+
+The data can be separated to test and control group:
+
+```{r}
+test <- colnames(car_exp)[c(seq(2,24,by=2))]
+test_sample <- car_exp[, c("X",test)]
+control <- colnames(car_exp)[c(seq(1,25,by=2))]
+control_sample <- car_exp[, control]
+
+```
+
+Try showing density plot for test group data:
+
+```{r, echo=FALSE}
+test_density <- apply(log2(cpm(test_sample[,2:13])), 2,
+                        density)
+#calculate the limits across all the samples
+xlim <- 0; ylim <- 0
+for (i in 1:length(test_density)) {
+  xlim <- range(c(xlim, test_density[[i]]$x));
+  ylim <- range(c(ylim, test_density[[i]]$y))
+}
+cols <- rainbow(length(test_density))
+ltys <- rep(1, length(test_density))
+#plot the first density plot to initialize the plot
+plot(test_density[[1]], xlim=xlim, ylim=ylim, type="n",
+     ylab="Smoothing density of log2-CPM", main="", cex.lab =
+       0.85)
+#plot each line
+for (i in 1:length(test_density)) lines(test_density[[i]],
+                                          col=cols[i], lty=ltys[i])
+#create legend
+legend("topleft",colnames(test_sample[,2:13]),
+       col=cols, lty=ltys, cex=0.55,
+       border ="blue", text.col = "green4",
+       merge = TRUE, bg = "gray90") 
+```
+
+And then control group distribution:
+
+```{r, echo=FALSE}
+control_density <- apply(log2(cpm(test_sample[,2:13])), 2,
+                      density)
+#calculate the limits across all the samples
+xlim <- 0; ylim <- 0
+for (i in 1:length(control_density)) {
+  xlim <- range(c(xlim, control_density[[i]]$x));
+  ylim <- range(c(ylim, control_density[[i]]$y))
+}
+cols <- rainbow(length(control_density))
+ltys <- rep(1, length(control_density))
+#plot the first density plot to initialize the plot
+plot(control_density[[1]], xlim=xlim, ylim=ylim, type="n",
+     ylab="Smoothing density of log2-CPM", main="", cex.lab =
+       0.85)
+#plot each line
+for (i in 1:length(control_density)) lines(control_density[[i]],
+                                        col=cols[i], lty=ltys[i])
+#create legend
+legend("topleft",colnames(control_sample[,2:13]),
+       col=cols, lty=ltys, cex=0.55,
+       border ="blue", text.col = "green4",
+       merge = TRUE, bg = "gray90")
+```
+
+No clear difference can be seen from two plots.
+
+The expression differences are specific for some subsets of genes, it can not be seen from overall disttribution plots.
+
+
+
+## 8. Sample separation
+
+Althoght no clear pattern in density distribution plot, sample saparation still can be seen by multidimenstional scaling plot:
+
+```{r}
+plotMDS(d, labels=rownames(samples),
+  col = c("darkgreen","blue")[factor(samples$stim_ctrl)], cex=0.5)
+  
+```
+
+__Conclusion__: The test group samples have smaller distance within group than between test and control group, showing test sample data are more similar within each other with than with data of control group.
+
+Of course this plot is only a visualization, not specific analysis of differential expression.
+
+## Reference
+
+1. Salter, A. I., Ivey, R. G., Kennedy, J. J., Voillet, V., Rajan, A., Alderman, E. J., … Riddell, S. R. (2018). Phosphoproteomic analysis of chimeric antigen receptor signaling reveals kinetic and quantitative differences that affect cell function. Science signaling, 11(544), eaat6753. doi:10.1126/scisignal.aat6753
+
+2. Evans, C., Hardin, J., & Stoebel, D. M. (2018). Selecting between-sample RNA-Seq normalization methods from the perspective of their assumptions. Briefings in bioinformatics, 19(5), 776–792. doi:10.1093/bib/bbx008
+  
