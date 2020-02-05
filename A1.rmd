@@ -102,7 +102,7 @@ According to assignment requirement: "All rows should have a unique HUGO symbols
 
 Deletion of those rows are reasonable since counts that not matching any gene expression doesn't contribute to differential expression analysis.
 
-Looking at the unmatched rows in "hgnc-symbol-check.csv", I realized all unmatched symbols have "." in it. For example symbols start with "RP". I guess it's denotes repeats, not really gene name. Lecture slide also mentioned this pattern.
+Looking at the unmatched rows in "hgnc-symbol-check.csv", I realized all unmatched symbols have "." in it. For example symbols start with "RP". I guess it denotes repeats, not really gene name. Lecture slide also mentioned this pattern.
 
 So I decided to delete all rows with "." in its symbol:
 
@@ -212,7 +212,7 @@ log2(cpm(car_exp[car_exp$X=="IFNG",c(2,3)]))
 
 The original downloaded data already the result of normalization, according to "RNA-seq data analysis" part of the paper that generate these data( Reference 1),  "Raw count data were imported into R. edgeR was used to calculate the normalization factors to scale the raw library sizes, followed by a voom transformation from the limma Bioconductor package".
 
-No normalization actually needed, but for practice doing normalization one more time to see if there are any effect.
+But the supplemetary data set is only the raw counts data, so I am doing normalization again.
 
 Package edgeR is chosen because it's the most common package for Trimmed Mean of the M-values (TMM)  normalization method, TMM is chosen because as a "Normalization by distribution" method, it choose a sample as a reference sample, then calculate fold changes and absolute expression levels relative to that sample, as described in Reference 2. It is considered as robust and commonly used method.
 
@@ -256,7 +256,7 @@ legend("topleft",colnames(data2plot),
 
 ```
 
-The plot is slightly different from the plot of distribution before normalization, but basically the same. The two plots have roughly same distribution range.
+The plot is slightly different from the plot of distribution before normalization, but not much. The two plots have roughly same distribution range.
 
 Also the boxplot:
 ```{r, warning=FALSE}
@@ -277,12 +277,14 @@ abline(h = median(apply(data2plot2, 2, median)), col = "green", lwd
        = 0.6, lty = "dashed")
 ```
 
-Since the normalization not really needed, I keep the data set just before normalization as final result.
+ n.
 
-Save the result:
+Save the data after normalization as final result, also save the filtered raw counts in case needed later:
 ```{r}
-result<-as.data.frame(car_exp_filtered)
+result<-as.data.frame(normalized_counts )
+result_raw <- as.data.frame(car_exp_filtered )
 write.csv(result,"result.csv")
+write.csv(result_raw,"result_raw.csv")
 ```
 
 ## 7. Compare test and control distribution
@@ -367,7 +369,7 @@ plotMDS(d, labels=rownames(samples),
   
 ```
 
-__Conclusion__: The test group samples have smaller distance within group than between test and control group, showing test sample data are more similar within each other with than with data of control group.
+__Conclusion__: Clearly test and control groups cluster. The test group samples have smaller distance within group than between test and control group, showing test sample data are more similar within each other than with data of control group.
 
 Of course this plot is only a visualization, not specific analysis of differential expression.
 
