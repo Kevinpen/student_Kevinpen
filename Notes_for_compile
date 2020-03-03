@@ -1,1 +1,2 @@
-__Notes for compile:__ The "data" folder and A2.bib file should be placed in the same directory of Rmd file in oreder for Rmd file to compile.
+__Notes for compile:__ The "data" folder and A2.bib file should be placed 
+in the same directory of A2.Rmd file in oreder for A2.Rmd file to compile.
