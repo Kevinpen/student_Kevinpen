@@ -442,7 +442,24 @@ write.table(x=downregulated_genes,
 
 The above code shows number of upregulated and downregulated genes are on roughly the same scale. The result genes are separately stored in list files.
 
-## 7.2 Over-representation analysis using g:Profiler
+## 7.2 MA plot
+
+Plot the above result in MA plot:
+
+```{r}
+up <- qlf.cartype[which(qlf.cartype$table$PValue < 0.05 & qlf.cartype$table$logFC > 1),]
+down <- qlf.cartype[which(qlf.cartype$table$PValue < 0.05
+                              & qlf_output_hits$table$logFC < -1),]
+
+plot(qlf.cartype$table$logCPM, qlf.cartype$table$logFC, cex = .5, main = "CAR type MA plot", xlab = "LogCPM",ylab = "LogFC")
+points(up$table$logFC, cex = .5, col = "red")
+points(down$table$logFC, cex = .5, col = "blue")
+
+
+```
+
+
+## 7.3 Over-representation analysis using g:Profiler
 
 I used g:Profiler for this report. Choose this tool because its friendly interfaces and I have already familiar with it. It data sources includes the most sources we are interested and the data are regularly updated and curated.
 
