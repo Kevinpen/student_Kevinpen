@@ -92,7 +92,7 @@ But I checked the identifiers in online HGNC checker: https://www.genenames.org/
 The result was downloaded as csv file. Checking this file found the majority of the symbols are approved or previously approved, but 3577 symbols are "Unmatched".
 
 ```{r}
-hgnc_checker <- read.csv("./hgnc-symbol-check.csv", header = FALSE)
+hgnc_checker <- read.csv("./data/hgnc-symbol-check.csv", header = FALSE)
 
 dim(hgnc_checker[hgnc_checker[,2]=="Unmatched",])
 
